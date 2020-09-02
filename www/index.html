@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>jsmpeg中继服务</title>
+    <link href="static/style.css" rel="stylesheet" />
+    <script src="static/jquery.min.js"></script>
+    <script src="static/vue.min.js"></script>
+</head>
+
+<body>
+    <div>
+        <p>*** jsmpeg websocket中继 & ffmpeg推流进程管理</p>
+        <p>*** ffmpeg进程懒加载, 仅当有websocket连接播放此视频流时, 才会启动ffmpeg进程, 没有player播放时, 停止ffmpeg进程</p>
+        <p>*** 数据存储在程序同级目录data.db文件</p>
+        <p>*** 连接 ws://[ip]:[port]/relay?key=[key]</p>
+    </div>
+    <div id="content">
+        <div>
+            <table>
+                <colgroup>
+                    <col style="width:600px;">
+                    <col style="width:400px;">
+                </colgroup>
+                <tr>
+                    <td>
+                        <input type="text" v-model="form.key" placeholder="stream key" />
+                    </td>
+                    <td>流唯一标识</td>
+                </tr>
+                <tr>
+                    <td>
+                        <input type="text" v-model="form.source" placeholder="source" />
+                    </td>
+                    <td>源地址, rtsp, rtmp, 视频文件地址等</td>
+                </tr>
+                <tr>
+                    <td>
+                        <input type="text" v-model="form.resolution" placeholder="resolution [-s] 640x480" />
+                    </td>
+                    <td>分辨率, 默认原始分辨率</td>
+                </tr>
+                <tr>
+                    <td>
+                        <button type="button" @click="submit">提交</button>
+                    </td>
+                    <td></td>
+                </tr>
+            </table>
+        </div>
+        <div>
+            <table>
+                <colgroup>
+                    <col style="width:100px;">
+                    <col style="width:400px;">
+                    <col style="width:100px;">
+                    <col style="width:100px;">
+                    <col style="width:200px;">
+                    <col style="width:100px;">
+                </colgroup>
+                <tr>
+                    <th>key</th>
+                    <th>source</th>
+                    <th>resolution</th>
+                    <th>alive</th>
+                    <th>players</th>
+                    <th>opt</th>
+                </tr>
+                <tr v-for="streamer in list" :key="streamer.key">
+                    <td>
+                        <a :href="'preview.html?key=' + streamer.key" target="_blank" v-text="streamer.key"></a>
+                    </td>
+                    <td v-text="streamer.source"></td>
+                    <td v-text="streamer.resolution"></td>
+                    <td v-text="streamer.alive"></td>
+                    <td>
+                        <div v-for="player in streamer.players" :key="player.key" v-text="player.key"></div>
+                    </td>
+                    <td>
+                        <button @click="deleteRow(streamer.key)">删除</button>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        var vm = new Vue({
+            el: '#content',
+            data: {
+                form: {
+                    key: "",
+                    source: "",
+                    resolution: "",
+                },
+                list: []
+            },
+            methods: {
+                listData() {
+                    let that = this;
+                    $.get("/streamer/list", res => {
+                        that.list = res;
+                    })
+                },
+                submit() {
+                    if (this.form.key == "") {
+                        return
+                    }
+                    if (this.form.source == "") {
+                        return
+                    }
+                    let that = this;
+                    $.get("/streamer/add", {
+                        key: that.form.key,
+                        source: that.form.source,
+                        resolution: that.form.resolution,
+                    }, res => {
+                        console.log(res)
+                        if (res != "ok") {
+                            alert(res)
+                        }
+                        that.listData()
+                    })
+                },
+                deleteRow(key) {
+                    if (key == "") {
+                        return
+                    }
+                    let that = this;
+                    $.get("/streamer/delete", {
+                        key: key,
+                    }, res => {
+                        console.log(res)
+                        if (res != "ok") {
+                            alert(res)
+                        }
+                        that.listData()
+                    })
+                },
+            },
+            mounted() {
+                this.listData()
+            }
+        })
+    </script>
+</body>
+
+</html>
