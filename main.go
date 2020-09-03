@@ -4,7 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"flag"
-	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -29,6 +30,7 @@ type streamer struct {
 	Key        string             `json:"key"`
 	Source     string             `json:"source"`
 	Resolution string             `json:"resolution"`
+	Lazy       bool               `json:"lazy"`
 	Alive      bool               `json:"alive"`
 	Cmd        *exec.Cmd          `json:"-"`
 	PlayerMap  map[string]*player `json:"playerMap"`
@@ -55,14 +57,14 @@ func (s *streamer) tryStart() {
 	cmd := exec.Command(params[0], params[1:]...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		s.Alive = false
 		return
 	}
 	cmd.Stderr = cmd.Stdout
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if err = cmd.Start(); err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		s.Alive = false
 		return
 	}
@@ -83,16 +85,17 @@ func (s *streamer) tryStart() {
 			}
 		}
 		s.Alive = false
-		fmt.Println("cmd killed")
+		log.Println("streamer " + s.Key + " cmd killed")
 	}(s)
 }
 
 func (s *streamer) stop() {
 	if s != nil {
+		// if s.Cmd != nil && s.Alive {
 		if s.Cmd != nil {
 			err := s.Cmd.Process.Kill()
 			if err != nil {
-				fmt.Println("streamer cmd kill err: " + err.Error())
+				log.Println("streamer cmd kill err: " + err.Error())
 			}
 		}
 		s.Alive = false
@@ -103,27 +106,37 @@ var streamerMap = make(map[string]*streamer)
 
 var db *sql.DB
 
+var port int
 var ffmpegPath string
+
+//var lazy bool
 
 // go build -ldflags="-w -s"
 // go build -ldflags="-w -s -H windowsgui"
 func main() {
 	root, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
-		fmt.Println("err root path: " + err.Error())
-		return
+		panic(err)
 	}
 
-	var port int
+	logFile, err := os.OpenFile(root+string(os.PathSeparator)+"jsmpeg-streamer.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0766)
+	if err != nil {
+		panic(err)
+	}
+	defer logFile.Close()
+	w := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(w)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	flag.IntVar(&port, "p", 10019, "端口, 默认10019")
 	flag.StringVar(&ffmpegPath, "ff", "", "ffmpeg路径, 默认同级目录或环境变量")
+	//flag.BoolVar(&lazy, "lz", true, "ffmpeg进程懒加载, 仅当有播放连接时启动")
 	flag.Parse()
 
-	fmt.Println("start at port " + strconv.Itoa(port))
+	log.Println("start at port " + strconv.Itoa(port))
 
 	if ffmpegPath == "" {
-		fmt.Println("未指定ffmepg路径, 查找同级目录")
+		log.Println("未指定ffmepg路径, 查找同级目录")
 		if runtime.GOOS == "windows" {
 			ffmpegPath = root + string(os.PathSeparator) + "ffmpeg.exe"
 		} else {
@@ -131,62 +144,64 @@ func main() {
 		}
 		exists, _ := pathExists(ffmpegPath)
 		if exists {
-			fmt.Println("使用同级目录: " + ffmpegPath)
+			log.Println("使用同级目录: " + ffmpegPath)
 		} else {
 			ffmpegPath = "ffmpeg"
-			fmt.Println("同级目录未找到")
-			fmt.Println("使用环境变量: " + ffmpegPath)
+			log.Println("同级目录未找到")
+			log.Println("使用环境变量: " + ffmpegPath)
 		}
 	}
 
 	// db sqlite3
 	db, err = sql.Open("sqlite3", root+string(os.PathSeparator)+"data.db")
 	if err != nil {
-		fmt.Println("load data.db err: " + err.Error())
-		return
+		log.Fatalln("load data.db err: " + err.Error())
 	}
 
 	sql1 := `create table if not exists "streamer" (
 		"key" varchar(64) primary key not null,
 		"source" varchar(256) not null,
-		"resolution" varchar(16)
+		"resolution" varchar(16),
+		"lazy" tinyint(1) not null
 		);`
 	_, err = db.Exec(sql1)
 	if err != nil {
-		fmt.Println(err.Error())
-		return
+		log.Fatalln(err.Error())
 	}
 
-	rows, err := db.Query("select key, source, resolution from streamer")
+	rows, err := db.Query("select key, source, resolution, lazy from streamer")
 	if err != nil {
-		fmt.Println("load streamers from db err: " + err.Error())
-		return
+		log.Fatalln("load streamers from db err: " + err.Error())
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var key string
 		var source string
 		var resolution string
-		err = rows.Scan(&key, &source, &resolution)
+		var lazy bool
+		err = rows.Scan(&key, &source, &resolution, &lazy)
 		if err != nil {
 			db.Close()
-			fmt.Println(err.Error())
-			return
+			log.Fatalln(err.Error())
 		}
-		streamerMap[key] = &streamer{
+		s := &streamer{
 			Key:        key,
 			Source:     source,
 			Resolution: resolution,
+			Lazy:       lazy,
 			Alive:      false,
 			Cmd:        nil,
 			PlayerMap:  make(map[string]*player),
+		}
+		streamerMap[key] = s
+		if !s.Lazy {
+			s.tryStart()
 		}
 	}
 	err = rows.Err()
 	if err != nil {
 		db.Close()
-		fmt.Println(err.Error())
-		return
+		log.Fatalln(err.Error())
 	}
 
 	// web views
@@ -203,31 +218,34 @@ func main() {
 	}
 	http.HandleFunc("/relay", func(w http.ResponseWriter, r *http.Request) {
 		uri := r.RequestURI
-		fmt.Println(uri)
+		log.Println(uri)
 		key := r.URL.Query().Get("key")
 		if key == "" {
-			fmt.Println("err stream key")
+			log.Println("err stream key")
 			return
 		}
 		s := streamerMap[key]
 		if s == nil {
-			fmt.Println("err stream key")
+			log.Println("err stream key")
 			return
 		}
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 			return
 		}
 
 		playerKey := conn.RemoteAddr().String()
-		fmt.Println("player connected: " + playerKey)
+		log.Println("player connected: " + playerKey + " -> streamer " + s.Key)
 		s.PlayerMap[playerKey] = &player{
 			Key:  playerKey,
 			Time: time.Now(),
 			Conn: conn,
 		}
-		s.tryStart()
+
+		if s.Lazy {
+			s.tryStart()
+		}
 
 		go func(conn *websocket.Conn) {
 			for {
@@ -237,15 +255,16 @@ func main() {
 					break
 				}
 			}
-			fmt.Println("conn closed")
+			log.Println("conn closed: " + playerKey)
 			playerKey := conn.RemoteAddr().String()
-			fmt.Println(playerKey)
 			for _, s := range streamerMap {
 				if s != nil {
 					delete(s.PlayerMap, playerKey)
-					if len(s.PlayerMap) == 0 {
-						s.stop()
-						fmt.Println("streamer has no player, stop")
+					if s.Lazy {
+						if len(s.PlayerMap) == 0 && s.Alive {
+							s.stop()
+							log.Println("streamer " + s.Key + " has no player, stop")
+						}
 					}
 				}
 			}
@@ -256,19 +275,27 @@ func main() {
 		var key string
 		var source string
 		var resolution string
+		var lazyStr string
 		if r.Method == "GET" {
 			q := r.URL.Query()
 			key = q.Get("key")
 			source = q.Get("source")
 			resolution = q.Get("resolution")
+			lazyStr = q.Get("lazy")
 		} else {
 			key = r.FormValue("key")
 			source = r.FormValue("source")
 			resolution = r.FormValue("resolution")
+			lazyStr = r.FormValue("lazy")
 		}
 		key = strings.TrimSpace(key)
 		source = strings.TrimSpace(source)
 		resolution = strings.TrimSpace(resolution)
+		lazy, err := strconv.ParseBool(lazyStr)
+		if err != nil {
+			log.Println(err)
+			lazy = true
+		}
 		if key == "" {
 			w.Write([]byte("key required"))
 			return
@@ -295,13 +322,13 @@ func main() {
 			return
 		}
 
-		stmt, err := db.Prepare("insert into streamer(key, source, resolution) values(?,?,?)")
+		stmt, err := db.Prepare("insert into streamer(key, source, resolution, lazy) values(?,?,?,?)")
 		if err != nil {
 			w.Write([]byte(err.Error()))
 			return
 		}
 		defer stmt.Close()
-		_, err = stmt.Exec(key, source, resolution)
+		_, err = stmt.Exec(key, source, resolution, lazy)
 		if err != nil {
 			w.Write([]byte(err.Error()))
 			return
@@ -311,12 +338,15 @@ func main() {
 			Key:        key,
 			Source:     source,
 			Resolution: resolution,
+			Lazy:       lazy,
 			Alive:      false,
 			Cmd:        nil,
 			PlayerMap:  make(map[string]*player),
 		}
 
-		//streamer.Start()
+		if !s.Lazy {
+			s.tryStart()
+		}
 
 		streamerMap[key] = s
 		w.Write([]byte("ok"))
@@ -333,6 +363,7 @@ func main() {
 				Key:        s.Key,
 				Source:     s.Source,
 				Resolution: s.Resolution,
+				Lazy:       s.Lazy,
 				Alive:      s.Alive,
 				Players:    players,
 			}
@@ -371,6 +402,18 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
+	go func() {
+		for {
+			for _, s := range streamerMap {
+				if s != nil && !s.Lazy && !s.Alive {
+					log.Println("!lazy streamer " + s.Key + " dropped, try start")
+					s.tryStart()
+				}
+			}
+			time.Sleep(time.Second * 10)
+		}
+	}()
+
 	http.ListenAndServe("0.0.0.0:"+strconv.Itoa(port), nil)
 
 }
@@ -379,6 +422,7 @@ type streamerModel struct {
 	Key        string    `json:"key"`
 	Source     string    `json:"source"`
 	Resolution string    `json:"resolution"`
+	Lazy       bool      `json:"lazy"`
 	Alive      bool      `json:"alive"`
 	Players    []*player `json:"players"`
 }

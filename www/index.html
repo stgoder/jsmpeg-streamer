@@ -12,17 +12,13 @@
 <body>
     <div>
         <p>*** jsmpeg websocket中继 & ffmpeg推流进程管理</p>
-        <p>*** ffmpeg进程懒加载, 仅当有websocket连接播放此视频流时, 才会启动ffmpeg进程, 没有player播放时, 停止ffmpeg进程</p>
+        <p>*** ffmpeg进程懒加载, 仅当有websocket连接播放时, 才会启动ffmpeg进程, 没有player播放时, 停止ffmpeg进程</p>
         <p>*** 数据存储在程序同级目录data.db文件</p>
         <p>*** 连接 ws://[ip]:[port]/relay?key=[key]</p>
     </div>
     <div id="content">
         <div>
             <table>
-                <colgroup>
-                    <col style="width:600px;">
-                    <col style="width:400px;">
-                </colgroup>
                 <tr>
                     <td>
                         <input type="text" v-model="form.key" placeholder="stream key" />
@@ -31,15 +27,26 @@
                 </tr>
                 <tr>
                     <td>
-                        <input type="text" v-model="form.source" placeholder="source" />
+                        <input type="text" v-model="form.source" placeholder="source" style="width: 450px;" />
                     </td>
-                    <td>源地址, rtsp, rtmp, 视频文件地址等</td>
+                    <td>
+                        <div>源地址, rtsp, rtmp, 视频文件地址等, [rtsp://admin:a00000000@192.168.1.71:554/h264/ch1/sub/av_stream], [rtmp://localhost/1], [C:\Users\stgoder\Desktop\test\5e016b8ec94c20126e69f67a.mp4]</div>
+                    </td>
                 </tr>
                 <tr>
                     <td>
                         <input type="text" v-model="form.resolution" placeholder="resolution [-s] 640x480" />
                     </td>
                     <td>分辨率, 默认原始分辨率</td>
+                </tr>
+                <tr>
+                    <td>
+                        <select v-model="form.lazy">
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                        </select>
+                    </td>
+                    <td>ffmpeg进程懒加载, 仅当有websocket连接播放时启动</td>
                 </tr>
                 <tr>
                     <td>
@@ -51,18 +58,11 @@
         </div>
         <div>
             <table>
-                <colgroup>
-                    <col style="width:100px;">
-                    <col style="width:400px;">
-                    <col style="width:100px;">
-                    <col style="width:100px;">
-                    <col style="width:200px;">
-                    <col style="width:100px;">
-                </colgroup>
                 <tr>
                     <th>key</th>
                     <th>source</th>
                     <th>resolution</th>
+                    <th>lazy</th>
                     <th>alive</th>
                     <th>players</th>
                     <th>opt</th>
@@ -73,6 +73,7 @@
                     </td>
                     <td v-text="streamer.source"></td>
                     <td v-text="streamer.resolution"></td>
+                    <td v-text="streamer.lazy"></td>
                     <td v-text="streamer.alive"></td>
                     <td>
                         <div v-for="player in streamer.players" :key="player.key" v-text="player.key"></div>
@@ -93,6 +94,7 @@
                     key: "",
                     source: "",
                     resolution: "",
+                    lazy: true,
                 },
                 list: []
             },
@@ -115,6 +117,7 @@
                         key: that.form.key,
                         source: that.form.source,
                         resolution: that.form.resolution,
+                        lazy: that.form.lazy,
                     }, res => {
                         console.log(res)
                         if (res != "ok") {
