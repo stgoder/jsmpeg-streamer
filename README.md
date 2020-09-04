@@ -1,37 +1,36 @@
 # jsmpeg-streamer
 
 #### 介绍
-jsmpeg websocket中继 & ffmpeg推流进程管理
+jsmpeg websocket中继 & ffmpeg转码进程管理  
+rtsp|rtmp|file... -> mpegts，jsmpeg页面播放
 
-#### 软件架构
-软件架构说明
+#### 编译
 
+1.  mewn把web文件一起打包binary  
+    `.\mewn.exe build -ldflags="-w -s"`  
+    `.\mewn.exe build -ldflags="-w -s -H windowsgui"` 隐藏窗口
+2.  upx压缩binary大小 (可选)  
+    `.\upx.exe -9 .\jsmpeg-streamer.exe`
 
-#### 安装教程
+#### 使用
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
-
-#### 使用说明
-
-1.  xxxx
-2.  xxxx
-3.  xxxx
-
-#### 参与贡献
-
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
-
-
-#### 码云特技
-
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  码云官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解码云上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是码云最有价值开源项目，是码云综合评定出的优秀开源项目
-5.  码云官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  码云封面人物是一档用来展示码云会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+- 运行可选参数，-p [端口] 默认10019，-ff [ffmpeg路径] 默认使用同级路径，其次使用环境变量
+- web页面，http://[ip]:[port]
+- http api
+  - /streamer/add  
+    key: string (\*) 唯一标识  
+    source: string (\*) 源地址，rtsp|rtmp|file...  
+    resolution: string 分辨率，默认原始分辨率  
+    lazy: bool 是否只在有播放时启动，默认true
+  - /streamer/delete
+    key: string (\*) 唯一标识
+  - /streamer/list
+- 页面引入 /static/jsmpeg.min.js，ws://[ip]:[port]/relay?key=1  
+    ````
+    <canvas id="canvas0"></canvas>
+    <script>
+    player0 = new JSMpeg.Player('ws://localhost:10019/relay?key=1', {
+        canvas: document.getElementById('canvas0')
+    })
+    </script>
+    ````
