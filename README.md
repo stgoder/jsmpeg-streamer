@@ -1,8 +1,7 @@
 # jsmpeg-streamer
 
 #### 介绍
-jsmpeg websocket中继 & ffmpeg转码进程管理  
-rtsp|rtmp|file... -> mpegts，jsmpeg页面播放
+jsmpeg rtsp|rtmp|file... h5播放，ffmpeg转码进程启停管理，进程按需启动  
 
 #### 编译
 
