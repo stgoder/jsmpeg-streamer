@@ -63,6 +63,7 @@ func (s *streamer) tryStart() {
 		return
 	}
 	cmd.Stderr = cmd.Stdout
+	// for windows only
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if err = cmd.Start(); err != nil {
 		log.Println(err)
@@ -160,6 +161,7 @@ func main() {
 		log.Fatal(err)
 	}
 	cmd.Stderr = cmd.Stdout
+	// for windows only
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if err = cmd.Start(); err != nil {
 		log.Fatal(err)
