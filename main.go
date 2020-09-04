@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/leaanthony/mewn"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -109,19 +110,19 @@ var db *sql.DB
 var port int
 var ffmpegPath string
 
-//var lazy bool
-
 // go build -ldflags="-w -s"
 // go build -ldflags="-w -s -H windowsgui"
+// mewn build -ldflags="-w -s"
+// mewn build -ldflags="-w -s -H windowsgui"
 func main() {
 	root, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	logFile, err := os.OpenFile(root+string(os.PathSeparator)+"jsmpeg-streamer.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0766)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer logFile.Close()
 	w := io.MultiWriter(os.Stdout, logFile)
@@ -130,10 +131,9 @@ func main() {
 
 	flag.IntVar(&port, "p", 10019, "端口, 默认10019")
 	flag.StringVar(&ffmpegPath, "ff", "", "ffmpeg路径, 默认同级目录或环境变量")
-	//flag.BoolVar(&lazy, "lz", true, "ffmpeg进程懒加载, 仅当有播放连接时启动")
 	flag.Parse()
 
-	log.Println("start at port " + strconv.Itoa(port))
+	log.Println("using port " + strconv.Itoa(port))
 
 	if ffmpegPath == "" {
 		log.Println("未指定ffmepg路径, 查找同级目录")
@@ -151,6 +151,30 @@ func main() {
 			log.Println("使用环境变量: " + ffmpegPath)
 		}
 	}
+
+	// try exec ffmpeg
+	log.Println("测试执行 ffmpeg -version")
+	cmd := exec.Command(ffmpegPath, "-version")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	cmd.Stderr = cmd.Stdout
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err = cmd.Start(); err != nil {
+		log.Fatal(err)
+	}
+	buf := make([]byte, 2048)
+	for {
+		n, err := stdout.Read(buf)
+		if n > 0 && err == nil {
+			log.Print(string(buf[0:n]))
+		}
+		if err != nil {
+			break
+		}
+	}
+	log.Println("exec " + ffmpegPath + " ok")
 
 	// db sqlite3
 	db, err = sql.Open("sqlite3", root+string(os.PathSeparator)+"data.db")
@@ -205,8 +229,39 @@ func main() {
 	}
 
 	// web views
-	fs := http.FileServer(http.Dir(root + string(os.PathSeparator) + "www"))
-	http.Handle("/", http.StripPrefix("/", fs))
+	//fs := http.FileServer(http.Dir(root + string(os.PathSeparator) + "www"))
+	//http.Handle("/", http.StripPrefix("/", fs))
+	indexHTML := mewn.Bytes("./www/index.html")
+	previewHTML := mewn.Bytes("./www/preview.html")
+	jqueryJs := mewn.Bytes("./www/static/jquery.min.js")
+	jsmpegJs := mewn.Bytes("./www/static/jsmpeg.min.js")
+	vueJs := mewn.Bytes("./www/static/vue.min.js")
+	styleCSS := mewn.Bytes("./www/static/style.css")
+	favicon := mewn.Bytes("./www/favicon.ico")
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.RequestURI == "/" || strings.HasPrefix(r.RequestURI, "/index.html") {
+			w.Header().Set("Content-Type", "text/html")
+			w.Write(indexHTML)
+		} else if strings.HasPrefix(r.RequestURI, "/preview.html") {
+			w.Header().Set("Content-Type", "text/html")
+			w.Write(previewHTML)
+		} else if strings.HasPrefix(r.RequestURI, "/static/jquery.min.js") {
+			w.Header().Set("Content-Type", "text/javascript")
+			w.Write(jqueryJs)
+		} else if strings.HasPrefix(r.RequestURI, "/static/jsmpeg.min.js") {
+			w.Header().Set("Content-Type", "text/javascript")
+			w.Write(jsmpegJs)
+		} else if strings.HasPrefix(r.RequestURI, "/static/vue.min.js") {
+			w.Header().Set("Content-Type", "text/javascript")
+			w.Write(vueJs)
+		} else if strings.HasPrefix(r.RequestURI, "/static/style.css") {
+			w.Header().Set("Content-Type", "text/css")
+			w.Write(styleCSS)
+		} else if strings.HasPrefix(r.RequestURI, "/favicon.ico") {
+			w.Header().Set("Content-Type", "image/x-icon")
+			w.Write(favicon)
+		}
+	})
 
 	// WebSocket realy
 	var upgrader = websocket.Upgrader{
