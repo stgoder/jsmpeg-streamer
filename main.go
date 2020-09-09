@@ -49,7 +49,7 @@ func (s *streamer) tryStart() {
 		params = append(params, []string{"-rtsp_transport", "tcp"}...)
 	}
 	params = append(params, []string{"-re", "-i", s.Source,
-		"-f", "mpegts", "-codec:v", "mpeg1video", "-nostats", "-r", "24", "-b:v", "700k"}...)
+		"-f", "mpegts", "-codec:v", "mpeg1video", "-preset", "fast", "-nostats", "-r", "24", "-b:v", "700k"}...)
 	if s.Resolution != "" {
 		params = append(params, []string{"-s", s.Resolution}...)
 	}
