@@ -46,7 +46,7 @@ func (s *streamer) tryStart() {
 	params := []string{"ffmpeg"}
 	isFile, _ := pathExists(s.Source)
 	if !isFile {
-		params = append(params, []string{"-rtsp_transport", "tcp"}...)
+		params = append(params, []string{"-rtsp_transport", "tcp", "-stimeout", "5000000"}...)
 	}
 	params = append(params, []string{"-re", "-i", s.Source,
 		"-f", "mpegts", "-codec:v", "mpeg1video", "-preset", "fast", "-nostats", "-r", "24", "-b:v", "700k"}...)
@@ -241,32 +241,27 @@ func main() {
 	styleCSS := mewn.Bytes("./www/static/style.css")
 	favicon := mewn.Bytes("./www/favicon.ico")
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
 		if r.RequestURI == "/" || strings.HasPrefix(r.RequestURI, "/index.html") {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Content-Type", "text/html")
 			w.Write(indexHTML)
 		} else if strings.HasPrefix(r.RequestURI, "/preview.html") {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Content-Type", "text/html")
 			w.Write(previewHTML)
 		} else if strings.HasPrefix(r.RequestURI, "/static/jquery.min.js") {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Content-Type", "text/javascript")
 			w.Write(jqueryJs)
 		} else if strings.HasPrefix(r.RequestURI, "/static/jsmpeg.min.js") {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Content-Type", "text/javascript")
 			w.Write(jsmpegJs)
 		} else if strings.HasPrefix(r.RequestURI, "/static/vue.min.js") {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Content-Type", "text/javascript")
 			w.Write(vueJs)
 		} else if strings.HasPrefix(r.RequestURI, "/static/style.css") {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Content-Type", "text/css")
 			w.Write(styleCSS)
 		} else if strings.HasPrefix(r.RequestURI, "/favicon.ico") {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Content-Type", "image/x-icon")
 			w.Write(favicon)
 		}
@@ -337,6 +332,7 @@ func main() {
 
 	http.HandleFunc("/streamer/add", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
 		var key string
 		var source string
 		var resolution string
@@ -419,6 +415,7 @@ func main() {
 
 	http.HandleFunc("/streamer/list", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
 		list := make([]*streamerModel, 0)
 		for _, s := range streamerMap {
 			players := make([]*player, 0)
@@ -446,6 +443,7 @@ func main() {
 
 	http.HandleFunc("/streamer/delete", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
 		var key string
 		if r.Method == "GET" {
 			key = r.URL.Query().Get("key")
