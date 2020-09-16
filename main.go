@@ -126,7 +126,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer logFile.Close()
-	w := io.MultiWriter(os.Stdout, logFile)
+	w := io.MultiWriter(logFile, os.Stdout)
 	log.SetOutput(w)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 

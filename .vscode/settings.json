@@ -1,0 +1,11 @@
+{
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "name": "jsmpeg-streamer-data",
+            "database": "${workspaceFolder:jsmpeg-streamer}/data.db"
+        }
+    ],
+    "sqltools.useNodeRuntime": true
+}
