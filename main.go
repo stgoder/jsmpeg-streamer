@@ -83,6 +83,7 @@ func (s *streamer) tryStart() {
 				}
 			}
 			if err != nil {
+				log.Println(err)
 				break
 			}
 		}
@@ -321,8 +322,8 @@ func main() {
 					delete(s.PlayerMap, playerKey)
 					if s.Lazy {
 						if len(s.PlayerMap) == 0 && s.Alive {
-							s.stop()
-							log.Println("streamer " + s.Key + " has no player, stop")
+							//s.stop()
+							log.Println("streamer " + s.Key + " has no player, waiting for stop")
 						}
 					}
 				}
@@ -470,9 +471,18 @@ func main() {
 	go func() {
 		for {
 			for _, s := range streamerMap {
-				if s != nil && !s.Lazy && !s.Alive {
-					log.Println("!lazy streamer " + s.Key + " dropped, try start")
-					s.tryStart()
+				if s != nil {
+					if !s.Lazy {
+						if !s.Alive {
+							log.Println("!lazy streamer " + s.Key + " dropped, try start")
+							s.tryStart()
+						}
+					} else {
+						if len(s.PlayerMap) == 0 && s.Alive {
+							s.stop()
+							log.Println("streamer " + s.Key + " has no player, stop")
+						}
+					}
 				}
 			}
 			time.Sleep(time.Second * 10)
