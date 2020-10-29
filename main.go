@@ -43,7 +43,7 @@ func (s *streamer) tryStart() {
 	}
 	s.Alive = true
 
-	params := []string{"ffmpeg"}
+	params := []string{ffmpegPath}
 	isFile, _ := pathExists(s.Source)
 	if !isFile {
 		params = append(params, []string{"-rtsp_transport", "tcp", "-stimeout", "5000000"}...)
