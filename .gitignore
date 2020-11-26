@@ -1,6 +1,7 @@
 .idea/
 .DS_Store
 output/
+.vscode/
 
 # Binaries for programs and plugins
 *.exe
