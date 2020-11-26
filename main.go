@@ -28,13 +28,14 @@ type player struct {
 }
 
 type streamer struct {
-	Key        string             `json:"key"`
-	Source     string             `json:"source"`
-	Resolution string             `json:"resolution"`
-	Lazy       bool               `json:"lazy"`
-	Alive      bool               `json:"alive"`
-	Cmd        *exec.Cmd          `json:"-"`
-	PlayerMap  map[string]*player `json:"playerMap"`
+	Key                string             `json:"key"`
+	Source             string             `json:"source"`
+	Resolution         string             `json:"resolution"`
+	Lazy               bool               `json:"lazy"`
+	Alive              bool               `json:"alive"`
+	Cmd                *exec.Cmd          `json:"-"`
+	PlayerMap          map[string]*player `json:"playerMap"`
+	LastDisconnectTime time.Time          `json:"lastDisconnectTime"`
 }
 
 func (s *streamer) tryStart() {
@@ -180,7 +181,7 @@ func main() {
 	log.Println("exec " + ffmpegPath + " ok")
 
 	// db sqlite3
-	db, err = sql.Open("sqlite3", root+string(os.PathSeparator)+"data.db")
+	db, err = sql.Open("sqlite3", root+string(os.PathSeparator)+"jsmpeg-streamer.db")
 	if err != nil {
 		log.Fatalln("load data.db err: " + err.Error())
 	}
@@ -320,6 +321,7 @@ func main() {
 			for _, s := range streamerMap {
 				if s != nil {
 					delete(s.PlayerMap, playerKey)
+					s.LastDisconnectTime = time.Now()
 					if s.Lazy {
 						if len(s.PlayerMap) == 0 && s.Alive {
 							//s.stop()
@@ -478,7 +480,7 @@ func main() {
 							s.tryStart()
 						}
 					} else {
-						if len(s.PlayerMap) == 0 && s.Alive {
+						if len(s.PlayerMap) == 0 && s.Alive && time.Now().Unix() > s.LastDisconnectTime.Unix()+60 {
 							s.stop()
 							log.Println("streamer " + s.Key + " has no player, stop")
 						}
