@@ -124,10 +124,10 @@ func main() {
 	}
 
 	logFile, err := os.OpenFile(root+string(os.PathSeparator)+"jsmpeg-streamer.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0766)
+	defer logFile.Close()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer logFile.Close()
 	w := io.MultiWriter(logFile, os.Stdout)
 	log.SetOutput(w)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -198,10 +198,10 @@ func main() {
 	}
 
 	rows, err := db.Query("select key, source, resolution, lazy from streamer")
+	defer rows.Close()
 	if err != nil {
 		log.Fatalln("load streamers from db err: " + err.Error())
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var key string
 		var source string
@@ -209,7 +209,6 @@ func main() {
 		var lazy bool
 		err = rows.Scan(&key, &source, &resolution, &lazy)
 		if err != nil {
-			db.Close()
 			log.Fatalln(err.Error())
 		}
 		s := &streamer{
@@ -228,7 +227,6 @@ func main() {
 	}
 	err = rows.Err()
 	if err != nil {
-		db.Close()
 		log.Fatalln(err.Error())
 	}
 
@@ -387,11 +385,11 @@ func main() {
 		}
 
 		stmt, err := db.Prepare("insert into streamer(key, source, resolution, lazy) values(?,?,?,?)")
+		defer stmt.Close()
 		if err != nil {
 			w.Write([]byte(err.Error()))
 			return
 		}
-		defer stmt.Close()
 		_, err = stmt.Exec(key, source, resolution, lazy)
 		if err != nil {
 			w.Write([]byte(err.Error()))
