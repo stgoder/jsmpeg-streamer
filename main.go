@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -82,7 +83,7 @@ func main() {
 	}
 	cmd.Stderr = cmd.Stdout
 	// for windows only
-	// cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if err = cmd.Start(); err != nil {
 		log.Fatalln(err)
 	}
@@ -477,7 +478,7 @@ func (s *streamer) tryStart() {
 	}
 	cmd.Stderr = cmd.Stdout
 	// for windows only
-	// cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if err = cmd.Start(); err != nil {
 		log.Println(err)
 		s.Alive = false
