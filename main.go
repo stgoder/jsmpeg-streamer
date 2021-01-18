@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,92 +22,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type player struct {
-	Key  string          `json:"key"`
-	Time time.Time       `json:"time"`
-	Conn *websocket.Conn `json:"-"`
-}
-
-type streamer struct {
-	Key                string             `json:"key"`
-	Source             string             `json:"source"`
-	Resolution         string             `json:"resolution"`
-	Lazy               bool               `json:"lazy"`
-	Alive              bool               `json:"alive"`
-	Cmd                *exec.Cmd          `json:"-"`
-	PlayerMap          map[string]*player `json:"playerMap"`
-	LastDisconnectTime time.Time          `json:"lastDisconnectTime"`
-}
-
-func (s *streamer) tryStart() {
-	if s.Alive {
-		return
-	}
-	s.Alive = true
-
-	params := []string{ffmpegPath}
-	isFile, _ := pathExists(s.Source)
-	if !isFile {
-		params = append(params, []string{"-rtsp_transport", "tcp", "-stimeout", "5000000"}...)
-	}
-	params = append(params, []string{"-re", "-i", s.Source,
-		"-f", "mpegts", "-codec:v", "mpeg1video", "-preset", "fast", "-nostats", "-r", "24", "-b:v", "700k"}...)
-	if s.Resolution != "" {
-		params = append(params, []string{"-s", s.Resolution}...)
-	}
-	params = append(params, []string{"-", "-loglevel", "error"}...)
-
-	cmd := exec.Command(params[0], params[1:]...)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Println(err)
-		s.Alive = false
-		return
-	}
-	cmd.Stderr = cmd.Stdout
-	// for windows only
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	if err = cmd.Start(); err != nil {
-		log.Println(err)
-		s.Alive = false
-		return
-	}
-
-	s.Cmd = cmd
-
-	go func(s *streamer) {
-		buf := make([]byte, 1024)
-		for {
-			n, err := stdout.Read(buf)
-			if n > 0 && err == nil {
-				for _, player := range s.PlayerMap {
-					player.Conn.WriteMessage(websocket.BinaryMessage, buf[0:n])
-				}
-			}
-			if err != nil {
-				log.Println(err)
-				break
-			}
-		}
-		s.Alive = false
-		log.Println("streamer " + s.Key + " cmd killed")
-	}(s)
-}
-
-func (s *streamer) stop() {
-	if s != nil {
-		// if s.Cmd != nil && s.Alive {
-		if s.Cmd != nil {
-			err := s.Cmd.Process.Kill()
-			if err != nil {
-				log.Println("streamer cmd kill err: " + err.Error())
-			}
-		}
-		s.Alive = false
-	}
-}
-
 var streamerMap = make(map[string]*streamer)
+var streamerMapLock sync.RWMutex
 
 var db *sql.DB
 
@@ -117,16 +34,18 @@ var ffmpegPath string
 // go build -ldflags="-w -s -H windowsgui"
 // mewn build -ldflags="-w -s"
 // mewn build -ldflags="-w -s -H windowsgui"
+// ./upx -9 ./jsmpeg-streamer
+// ./upx.exe -9 ./jsmpeg-streamer.exe
 func main() {
 	root, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
 
 	logFile, err := os.OpenFile(root+string(os.PathSeparator)+"jsmpeg-streamer.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0766)
 	defer logFile.Close()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
 	w := io.MultiWriter(logFile, os.Stdout)
 	log.SetOutput(w)
@@ -160,13 +79,13 @@ func main() {
 	cmd := exec.Command(ffmpegPath, "-version")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
 	cmd.Stderr = cmd.Stdout
 	// for windows only
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if err = cmd.Start(); err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
 	buf := make([]byte, 2048)
 	for {
@@ -181,7 +100,10 @@ func main() {
 	log.Println("exec " + ffmpegPath + " ok")
 
 	// db sqlite3
-	db, err = sql.Open("sqlite3", root+string(os.PathSeparator)+"jsmpeg-streamer.db")
+	db, err = sql.Open("sqlite3", root+string(os.PathSeparator)+"jsmpeg-streamer.db?cache=shared")
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	if err != nil {
 		log.Fatalln("load data.db err: " + err.Error())
 	}
@@ -212,15 +134,18 @@ func main() {
 			log.Fatalln(err.Error())
 		}
 		s := &streamer{
-			Key:        key,
-			Source:     source,
-			Resolution: resolution,
-			Lazy:       lazy,
-			Alive:      false,
-			Cmd:        nil,
-			PlayerMap:  make(map[string]*player),
+			Key:           key,
+			Source:        source,
+			Resolution:    resolution,
+			Lazy:          lazy,
+			Alive:         false,
+			Cmd:           nil,
+			PlayerMapLock: sync.RWMutex{},
+			PlayerMap:     make(map[string]*player),
 		}
+		streamerMapLock.Lock()
 		streamerMap[key] = s
+		streamerMapLock.Unlock()
 		if !s.Lazy {
 			s.tryStart()
 		}
@@ -283,7 +208,9 @@ func main() {
 			log.Println("err stream key")
 			return
 		}
+		streamerMapLock.RLock()
 		s := streamerMap[key]
+		streamerMapLock.RUnlock()
 		if s == nil {
 			log.Println("err stream key")
 			return
@@ -296,11 +223,13 @@ func main() {
 
 		playerKey := conn.RemoteAddr().String()
 		log.Println("player connected: " + playerKey + " -> streamer " + s.Key)
+		s.PlayerMapLock.Lock()
 		s.PlayerMap[playerKey] = &player{
 			Key:  playerKey,
 			Time: time.Now(),
 			Conn: conn,
 		}
+		s.PlayerMapLock.Unlock()
 
 		if s.Lazy {
 			s.tryStart()
@@ -318,7 +247,9 @@ func main() {
 			playerKey := conn.RemoteAddr().String()
 			for _, s := range streamerMap {
 				if s != nil {
+					s.PlayerMapLock.Lock()
 					delete(s.PlayerMap, playerKey)
+					s.PlayerMapLock.Unlock()
 					s.LastDisconnectTime = time.Now()
 					if s.Lazy {
 						if len(s.PlayerMap) == 0 && s.Alive {
@@ -366,7 +297,9 @@ func main() {
 			w.Write([]byte("source required"))
 			return
 		}
+		streamerMapLock.RLock()
 		s := streamerMap[key]
+		streamerMapLock.RUnlock()
 		if s != nil {
 			w.Write([]byte("same key"))
 			return
@@ -397,20 +330,23 @@ func main() {
 		}
 
 		s = &streamer{
-			Key:        key,
-			Source:     source,
-			Resolution: resolution,
-			Lazy:       lazy,
-			Alive:      false,
-			Cmd:        nil,
-			PlayerMap:  make(map[string]*player),
+			Key:           key,
+			Source:        source,
+			Resolution:    resolution,
+			Lazy:          lazy,
+			Alive:         false,
+			Cmd:           nil,
+			PlayerMapLock: sync.RWMutex{},
+			PlayerMap:     make(map[string]*player),
 		}
 
 		if !s.Lazy {
 			s.tryStart()
 		}
 
+		streamerMapLock.Lock()
 		streamerMap[key] = s
+		streamerMapLock.Unlock()
 		w.Write([]byte("ok"))
 	})
 
@@ -451,9 +387,13 @@ func main() {
 		} else {
 			key = r.FormValue("key")
 		}
+		streamerMapLock.RLock()
 		s := streamerMap[key]
+		streamerMapLock.RUnlock()
 		if s != nil {
+			streamerMapLock.Lock()
 			delete(streamerMap, key)
+			streamerMapLock.Unlock()
 			s.stop()
 		}
 
@@ -491,6 +431,100 @@ func main() {
 
 	http.ListenAndServe("0.0.0.0:"+strconv.Itoa(port), nil)
 
+}
+
+type player struct {
+	Key  string          `json:"key"`
+	Time time.Time       `json:"time"`
+	Conn *websocket.Conn `json:"-"`
+}
+
+type streamer struct {
+	Key                string             `json:"key"`
+	Source             string             `json:"source"`
+	Resolution         string             `json:"resolution"`
+	Lazy               bool               `json:"lazy"`
+	Alive              bool               `json:"alive"`
+	Cmd                *exec.Cmd          `json:"-"`
+	PlayerMap          map[string]*player `json:"playerMap"`
+	PlayerMapLock      sync.RWMutex       `json:"-"`
+	LastDisconnectTime time.Time          `json:"lastDisconnectTime"`
+}
+
+func (s *streamer) tryStart() {
+	if s.Alive {
+		return
+	}
+	s.Alive = true
+
+	params := []string{ffmpegPath}
+	isFile, _ := pathExists(s.Source)
+	if !isFile {
+		params = append(params, []string{"-rtsp_transport", "tcp", "-stimeout", "5000000"}...)
+	}
+	params = append(params, []string{"-re", "-i", s.Source,
+		"-f", "mpegts", "-codec:v", "mpeg1video", "-preset", "fast", "-nostats", "-r", "24", "-b:v", "700k"}...)
+	if s.Resolution != "" {
+		params = append(params, []string{"-s", s.Resolution}...)
+	}
+	params = append(params, []string{"-", "-loglevel", "error"}...)
+
+	cmd := exec.Command(params[0], params[1:]...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Println(err)
+		s.Alive = false
+		return
+	}
+	cmd.Stderr = cmd.Stdout
+	// for windows only
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err = cmd.Start(); err != nil {
+		log.Println(err)
+		s.Alive = false
+		return
+	}
+
+	s.Cmd = cmd
+
+	go func(s *streamer) {
+		buf := make([]byte, 1024)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 && err == nil {
+				for _, p := range s.PlayerMap {
+					if p != nil && p.Conn != nil {
+						err := p.Conn.WriteMessage(websocket.BinaryMessage, buf[0:n])
+						if err != nil {
+							log.Println(err)
+						}
+					}
+				}
+			}
+			if err != nil {
+				log.Println(err)
+				break
+			}
+		}
+		if err := s.Cmd.Wait(); err != nil {
+			log.Println(err)
+		}
+		s.Alive = false
+		log.Println("streamer " + s.Key + " cmd killed")
+	}(s)
+}
+
+func (s *streamer) stop() {
+	if s != nil {
+		// if s.Cmd != nil && s.Alive {
+		if s.Cmd != nil {
+			err := s.Cmd.Process.Kill()
+			if err != nil {
+				log.Println("streamer cmd kill err: " + err.Error())
+			}
+		}
+		s.Alive = false
+	}
 }
 
 type streamerModel struct {
