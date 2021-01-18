@@ -32,8 +32,8 @@ var ffmpegPath string
 
 // go build -ldflags="-w -s"
 // go build -ldflags="-w -s -H windowsgui"
-// mewn build -ldflags="-w -s"
-// mewn build -ldflags="-w -s -H windowsgui"
+// ./mewn build -ldflags="-w -s"
+// ./mewn build -ldflags="-w -s -H windowsgui"
 // ./upx -9 ./jsmpeg-streamer
 // ./upx.exe -9 ./jsmpeg-streamer.exe
 func main() {
